@@ -47,8 +47,19 @@ export async function extractArticle(url: string): Promise<ExtractResult & { fet
   // the page-chrome strip to direct body children + role markers.
   $("body > nav, body > header, body > footer, body > aside").remove();
   $(
-    "nav, aside, footer, [role='navigation'], [role='banner'], [role='contentinfo'], [role='complementary'], .site-nav, .navbar, .site-menu, .site-header, .site-footer, .sidebar, script, style, noscript",
+    "nav, aside, footer, [role='navigation'], [role='banner'], [role='contentinfo'], [role='complementary'], .site-nav, .navbar, .site-menu, .site-header, .site-footer, .sidebar, style, noscript",
   ).remove();
+  // Strip scripts EXCEPT those nested inside gallery wrappers — Valnet's
+  // gallery widget stores its per-entry image URLs inside an inline
+  // <script type="module"> block, and the regex fallback in firstImageIn
+  // needs that script content to survive.
+  $("script").each((_, el) => {
+    const $el = $(el);
+    if ($el.closest('.valnet-gallery, .gallery, [class*="gallery"]').length) {
+      return;
+    }
+    $el.remove();
+  });
 
   const title = extractTitle($);
   const subtitle = extractSubtitle($);
@@ -377,10 +388,29 @@ function buildItems(
   }));
 }
 
+const HEAD_LEVEL: Record<string, number> = {
+  h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6,
+};
+
+/**
+ * True if walking past `tag` would cross into the next entry — i.e. the tag
+ * is a heading at the same level as the entry or shallower. Subheads (deeper
+ * h-levels) are kept inside the current entry, so galleries and prose sitting
+ * after an h3 sub-section heading still belong to the parent h2 entry.
+ */
+function isEntryBoundary(tag: string | undefined, entryTag: string): boolean {
+  if (!tag) return false;
+  const t = HEAD_LEVEL[tag];
+  const e = HEAD_LEVEL[entryTag];
+  if (t === undefined || e === undefined) return false;
+  return t <= e;
+}
+
 function bodyAfter(
   $: cheerio.CheerioAPI,
   el: Element,
 ): string {
+  const entryTag = (el as any).tagName?.toLowerCase?.() ?? "h2";
   const parts: string[] = [];
   let node: Element | null = el;
   let chars = 0;
@@ -389,7 +419,7 @@ function bodyAfter(
     if (!next) break;
     node = next;
     const tag = (node as any).tagName?.toLowerCase?.();
-    if (tag === "h1" || tag === "h2" || tag === "h3") break;
+    if (isEntryBoundary(tag, entryTag)) break;
     if (tag === "p" || tag === "div" || tag === "ul" || tag === "ol" || tag === "blockquote") {
       const t = $(node).text().trim().replace(/\s+/g, " ");
       if (t) {
@@ -407,17 +437,100 @@ function imageNear(
   el: Element,
   base: URL,
 ): string | null {
-  // First image after this heading, before next heading
+  const entryTag = (el as any).tagName?.toLowerCase?.() ?? "h2";
   let node: Element | null = el;
-  for (let i = 0; i < 30 && node; i++) {
+  for (let i = 0; i < 60 && node; i++) {
     const next: Element | undefined = (node as any).nextSibling;
     if (!next) break;
     node = next;
     const tag = (node as any).tagName?.toLowerCase?.();
-    if (tag === "h1" || tag === "h2" || tag === "h3") break;
-    const img = $(node).find("img").first().attr("src") || $(node).attr("src");
-    if (img && tag === "img") return abs(img, base);
-    if (img) return abs(img, base);
+    if (isEntryBoundary(tag, entryTag)) break;
+    if (!tag) continue; // text nodes between siblings
+    const found = firstImageIn($, node, base);
+    if (found) return found;
   }
+  return null;
+}
+
+/**
+ * Find the first usable image URL inside `scope`. Handles:
+ *   - <img src> (basic)
+ *   - lazy loading: data-src, data-lazy-src, data-original, data-srcset
+ *   - <img srcset>: picks the first candidate
+ *   - <picture><source srcset>
+ *   - skips 1x1 pixels, blank placeholders, and data: URLs (low-info)
+ *
+ * Many Valnet articles wrap entry images in a `.valnet-gallery` div with
+ * lazy-loaded <img> tags whose visible `src` is a tracking pixel. This helper
+ * digs through to find the real URL.
+ */
+function firstImageIn(
+  $: cheerio.CheerioAPI,
+  scope: Element,
+  base: URL,
+): string | null {
+  const $scope = $(scope);
+  const isPlaceholder = (s: string) =>
+    s.startsWith("data:") ||
+    /\/(blank|pixel|placeholder|spacer|transparent)\.(gif|png|svg)/i.test(s);
+
+  // Direct img on the scope element itself
+  const own = $scope.is("img") ? scope : null;
+  const imgs = own ? [own] : $scope.find("img").toArray();
+
+  for (const img of imgs) {
+    const $img = $(img);
+    // Real-src attrs in priority order
+    for (const attr of ["data-src", "data-lazy-src", "data-original", "src"]) {
+      const v = $img.attr(attr);
+      if (v && !isPlaceholder(v)) {
+        return abs(v, base);
+      }
+    }
+    // srcset fallbacks
+    for (const attr of ["srcset", "data-srcset"]) {
+      const ss = $img.attr(attr);
+      if (ss) {
+        const candidate = ss.split(",")[0]?.trim().split(/\s+/)[0];
+        if (candidate && !isPlaceholder(candidate)) {
+          return abs(candidate, base);
+        }
+      }
+    }
+  }
+
+  // <picture><source srcset="..."> — used a lot on Cloudflare-fronted CDNs.
+  const sources = $scope.find("source[srcset], source[data-srcset]").toArray();
+  for (const s of sources) {
+    const ss = $(s).attr("srcset") || $(s).attr("data-srcset");
+    if (ss) {
+      const candidate = ss.split(",")[0]?.trim().split(/\s+/)[0];
+      if (candidate && !isPlaceholder(candidate)) {
+        return abs(candidate, base);
+      }
+    }
+  }
+
+  // Last resort: pull a URL out of the raw HTML. Valnet's gallery widget
+  // (`.valnet-gallery`) injects images via a JS bootstrap — the real URLs
+  // sit inside a `<script>` block as an HTML-encoded string with backslash-
+  // escaped slashes:
+  //
+  //   window.arrayOfGalleries["..."] = '&lt;picture&gt;...data-img-url=\&quot;https:\/\/static0.../foo.jpg\&quot;...'
+  //
+  // Since every slash inside the URL is escaped as `\/`, we have to keep
+  // backslashes IN the matched URL — then unescape them. Stops at `.jpg`/
+  // `.png`/`.webp` so we capture the base asset, not the resized variant.
+  const raw = $scope.html() ?? "";
+  if (raw.length > 0) {
+    const match = raw.match(
+      /https?:(?:\\?\/){2}[^\s"'<>&]+?\.(?:jpe?g|png|webp)/i,
+    );
+    if (match) {
+      const cleaned = match[0].replace(/\\\//g, "/");
+      if (!isPlaceholder(cleaned)) return abs(cleaned, base);
+    }
+  }
+
   return null;
 }
