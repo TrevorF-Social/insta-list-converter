@@ -226,16 +226,17 @@ function sniffAccent($: cheerio.CheerioAPI): string | null {
 /**
  * Listicle item extraction.
  *
- * Listicles vary wildly. Strategy in order of preference:
- *   1) Headings inside the article body that look like rank entries
- *      (e.g. start with "1.", "1 ", "#1", "10:") — most modern publishers
- *      including Valnet sites use h2/h3 per entry.
- *   2) Any h2/h3 inside the article body, if there are >=4 of them and they
- *      aren't section dividers ("Related", "About the author", etc.).
- *   3) <ol>/<ul> with substantive items, as a last resort.
- *
- * The "body" for each item is the prose following its heading up to the next
- * heading (or a sensible cap).
+ * Strategy in order of preference:
+ *   1) Ranked h2 entries ("1. Title", "#5 Title") — most reliable signal.
+ *   2) Unranked h2 entries — assumes entries are h2 and h3s are subsections
+ *      inside each entry ("Pros", "Verdict", "Specs"). This is the common
+ *      Valnet/Future/Hearst pattern.
+ *   3) Ranked entries at any heading level — catches sites that tag entries
+ *      as h3 inside an h2 section wrapper.
+ *   4) Unranked h2+h3 mixed — only when neither (1)-(3) produces enough.
+ *      Risk of double-counting subheads is highest here, so we also filter
+ *      common subhead phrases.
+ *   5) <ol>/<ul> items — last resort.
  */
 function extractListItems(
   $: cheerio.CheerioAPI,
@@ -244,42 +245,28 @@ function extractListItems(
   const root = pickArticleRoot($);
   if (!root) return [];
 
-  const headings = root.find("h2, h3").toArray();
-  const ranked: { el: Element; rank: number; clean: string }[] = [];
-  const unranked: { el: Element; clean: string }[] = [];
+  const h2 = collectHeadings($, root.find("h2").toArray());
+  const h3 = collectHeadings($, root.find("h3").toArray());
 
-  for (const el of headings) {
-    const txt = $(el).text().trim().replace(/\s+/g, " ");
-    if (!txt || txt.length < 3) continue;
-    if (isJunkHeading(txt)) continue;
-    const rankMatch = txt.match(/^#?\s*(\d{1,3})\s*[.:)\-–]\s*(.+)$/);
-    if (rankMatch) {
-      ranked.push({
-        el,
-        rank: parseInt(rankMatch[1], 10),
-        clean: rankMatch[2].trim(),
-      });
-    } else {
-      unranked.push({ el, clean: txt });
-    }
+  // Layer 1: ranked h2 (the strongest signal — entries explicitly numbered).
+  if (h2.ranked.length >= 3) return buildItems($, h2.ranked, base);
+
+  // Layer 2: unranked h2. If entries are h2 and subheads are h3, this avoids
+  // pulling the subheads into the list.
+  if (h2.unranked.length >= 4) {
+    const items = h2.unranked.filter((h) => !looksLikeSubhead(h.clean));
+    if (items.length >= 4) return buildItems($, withRanks(items), base);
   }
 
-  // Prefer ranked entries if there are at least 3
-  const headingsToUse =
-    ranked.length >= 3
-      ? ranked.map((r) => ({ el: r.el, rank: r.rank, heading: r.clean }))
-      : unranked.length >= 4
-        ? unranked.map((u, i) => ({ el: u.el, rank: i + 1, heading: u.clean }))
-        : [];
+  // Layer 3: ranked anywhere — covers sites that tag entries as h3.
+  const allRanked = [...h2.ranked, ...h3.ranked].sort((a, b) => a.rank - b.rank);
+  if (allRanked.length >= 3) return buildItems($, allRanked, base);
 
-  if (headingsToUse.length > 0) {
-    return headingsToUse.map((h) => ({
-      rank: h.rank,
-      heading: h.heading,
-      body: bodyAfter($, h.el),
-      imageUrl: imageNear($, h.el, base),
-    }));
-  }
+  // Layer 4: mixed unranked. Strip subheads first.
+  const mixed = [...h2.unranked, ...h3.unranked].filter(
+    (h) => !looksLikeSubhead(h.clean),
+  );
+  if (mixed.length >= 4) return buildItems($, withRanks(mixed), base);
 
   // Fallback: ol/ul list
   const ol = root.find("ol li, ul li").toArray();
@@ -322,9 +309,72 @@ function pickArticleRoot($: cheerio.CheerioAPI): cheerio.Cheerio<AnyNode> | null
 
 function isJunkHeading(txt: string): boolean {
   const low = txt.toLowerCase();
-  return /^(related|recommended|read (more|also|next)|about the author|sources?|see also|share this|advertisement|sign up|newsletter|trending|popular|table of contents)/i.test(
+  return /^(related|recommended|read (more|also|next)|about the author|sources?|see also|share this|advertisement|sign up|newsletter|trending|popular|table of contents|faqs?|frequently asked|q&a|comments?|methodology|how we (test|chose|picked|ranked))/i.test(
     low,
   );
+}
+
+/**
+ * Heuristic for "this heading is a subsection inside an entry, not the entry
+ * itself." Common in product roundups (Pros/Cons/Verdict) and Valnet listicles
+ * ("Why we picked it", "What we like"). Short, often repeated across entries.
+ *
+ * Only used as a last-resort filter; the primary defense against subhead
+ * pollution is preferring h2-only when there are enough h2s.
+ */
+function looksLikeSubhead(txt: string): boolean {
+  const low = txt.toLowerCase().trim();
+  if (low.length <= 30) {
+    if (/^(pros|cons|specs?|verdict|features?|highlights?|conclusion|summary|overview|details?|key takeaways?|the (verdict|bottom line|good|bad|ugly)|what (we like|to know|to expect)|why (we (love|picked|chose|recommend) it|it works|it matters|buy)|how (to|it works)|where to buy|price|availability|design|performance|battery( life)?|camera|display|software|build quality|value for money)$/i.test(
+      low,
+    )) {
+      return true;
+    }
+  }
+  return false;
+}
+
+type Heading = { el: Element; clean: string; rank?: number };
+
+function collectHeadings(
+  $: cheerio.CheerioAPI,
+  elements: Element[],
+): { ranked: (Heading & { rank: number })[]; unranked: Heading[] } {
+  const ranked: (Heading & { rank: number })[] = [];
+  const unranked: Heading[] = [];
+  for (const el of elements) {
+    const txt = $(el).text().trim().replace(/\s+/g, " ");
+    if (!txt || txt.length < 3) continue;
+    if (isJunkHeading(txt)) continue;
+    const rankMatch = txt.match(/^#?\s*(\d{1,3})\s*[.:)\-–]\s*(.+)$/);
+    if (rankMatch) {
+      ranked.push({
+        el,
+        rank: parseInt(rankMatch[1], 10),
+        clean: rankMatch[2].trim(),
+      });
+    } else {
+      unranked.push({ el, clean: txt });
+    }
+  }
+  return { ranked, unranked };
+}
+
+function withRanks(headings: Heading[]): (Heading & { rank: number })[] {
+  return headings.map((h, i) => ({ ...h, rank: h.rank ?? i + 1 }));
+}
+
+function buildItems(
+  $: cheerio.CheerioAPI,
+  headings: (Heading & { rank: number })[],
+  base: URL,
+): ListItem[] {
+  return headings.map((h) => ({
+    rank: h.rank,
+    heading: h.clean,
+    body: bodyAfter($, h.el),
+    imageUrl: imageNear($, h.el, base),
+  }));
 }
 
 function bodyAfter(
