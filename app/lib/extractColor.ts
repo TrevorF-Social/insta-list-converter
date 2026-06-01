@@ -91,9 +91,9 @@ export async function fetchImageWithBytes(
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        // Allow SVG here; we rasterize it to PNG below before handing it to
-        // satori (which can't render SVG <img> reliably).
-        Accept: "image/png,image/jpeg,image/svg+xml;q=0.9,*/*;q=0.5",
+        // Accept anything; sharp transcodes AVIF/WebP/SVG below.
+        Accept:
+          "image/png,image/jpeg,image/webp,image/avif,image/svg+xml,*/*;q=0.5",
         "Accept-Language": "en-US,en;q=0.9",
         Referer: new URL(url).origin + "/",
       },
@@ -104,13 +104,15 @@ export async function fetchImageWithBytes(
     const ctype =
       res.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
 
-    // Modern formats satori can't read — drop them so the caller falls back
-    // to siteName text rather than crashing the render.
-    if (ctype === "image/avif" || ctype === "image/webp") return null;
-
-    // SVG logos are extremely common (especially for wordmarks). Rasterize
-    // to PNG so satori can embed them and so the color sampler has pixel data.
-    if (ctype === "image/svg+xml" || ctype === "image/svg") {
+    // SVG / AVIF / WebP all need transcoding before satori can render them.
+    // sharp reads every one and outputs PNG — that also gives the color
+    // sampler real pixel data to work with.
+    if (
+      ctype === "image/svg+xml" ||
+      ctype === "image/svg" ||
+      ctype === "image/avif" ||
+      ctype === "image/webp"
+    ) {
       const png = await sharp(raw, { density: 300 })
         .resize(512, 512, { fit: "inside", withoutEnlargement: false })
         .png()

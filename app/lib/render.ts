@@ -766,10 +766,10 @@ export async function urlToDataUrl(url: string | null | undefined): Promise<stri
         // Send a full browser header set so image hotlinks actually resolve.
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        // satori only renders PNG/JPEG reliably; AVIF/WebP/SVG cause failures.
-        // Ordering matters — content-negotiating CDNs serve the first format
-        // they support that we'll accept.
-        Accept: "image/png,image/jpeg;q=0.9,*/*;q=0.5",
+        // We accept anything the CDN wants to serve; sharp transcodes
+        // AVIF/WebP/SVG to JPEG below for satori. This avoids the prior
+        // failure mode where Render's Linux pop got AVIF and we returned null.
+        Accept: "image/png,image/jpeg,image/webp,image/avif,image/svg+xml,*/*;q=0.5",
         "Accept-Language": "en-US,en;q=0.9",
         "Sec-Fetch-Dest": "image",
         "Sec-Fetch-Mode": "no-cors",
@@ -783,17 +783,26 @@ export async function urlToDataUrl(url: string | null | undefined): Promise<stri
     const mime =
       res.headers.get("content-type")?.split(";")[0]?.trim() ||
       sniffMime(buf) ||
-      "image/png";
+      "image/jpeg";
+
+    // satori only renders PNG/JPEG/GIF reliably. For anything else (AVIF,
+    // WebP, SVG) transcode via sharp — it can read every format we care about
+    // and produces a JPEG satori is happy with.
     if (
-      mime === "image/svg+xml" ||
-      mime === "image/svg" ||
       mime === "image/avif" ||
-      mime === "image/webp"
+      mime === "image/webp" ||
+      mime === "image/svg+xml" ||
+      mime === "image/svg"
     ) {
-      // satori can't render these. Some CDNs ignore the Accept header and
-      // serve modern formats anyway, so we double-check the response and
-      // drop the image rather than crashing the whole slide.
-      return null;
+      try {
+        const sharpMod = await import("sharp");
+        const jpeg = await sharpMod.default(buf).jpeg({ quality: 85 }).toBuffer();
+        return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+      } catch {
+        // sharp can fail on truncated or exotic files. Better to drop the
+        // image than crash the whole slide.
+        return null;
+      }
     }
     return `data:${mime};base64,${buf.toString("base64")}`;
   } catch {
@@ -802,10 +811,16 @@ export async function urlToDataUrl(url: string | null | undefined): Promise<stri
 }
 
 function sniffMime(buf: Buffer): string | null {
-  if (buf.length < 4) return null;
+  if (buf.length < 12) return null;
   if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
   if (buf[0] === 0x89 && buf[1] === 0x50) return "image/png";
   if (buf[0] === 0x47 && buf[1] === 0x49) return "image/gif";
   if (buf.slice(0, 4).toString("ascii") === "RIFF") return "image/webp";
+  // AVIF: bytes 4-11 contain "ftyp" then "avif" or "avis" or "mif1"/"heic"
+  if (buf.slice(4, 8).toString("ascii") === "ftyp") {
+    const brand = buf.slice(8, 12).toString("ascii");
+    if (brand === "avif" || brand === "avis") return "image/avif";
+    if (brand === "heic" || brand === "heix" || brand === "mif1") return "image/heic";
+  }
   return null;
 }
