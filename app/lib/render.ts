@@ -7,13 +7,23 @@ import path from "node:path";
 export const SLIDE_W = 1080;
 export const SLIDE_H = 1350;
 
-export type SlideKind = "cover" | "item" | "outro";
+export type SlideKind = "cover" | "item" | "outro" | "summary";
 
 /**
  * Per-image focal point, in percentage coordinates (0–100). Maps directly to
  * CSS object-position. (50, 50) is centered (default).
  */
 export type ImagePosition = { x: number; y: number };
+
+/**
+ * One row in the "summary" slide — the at-a-glance full-list overview. The
+ * dataUrl is filled in by the API route's image-resolution pass.
+ */
+export type SummaryEntry = {
+  rank: number | null;
+  heading: string;
+  imageDataUrl?: string | null;
+};
 
 export type RenderConfig = {
   kind: SlideKind;
@@ -31,6 +41,11 @@ export type RenderConfig = {
   // Outro fields
   ctaText?: string;
   sourceUrl?: string;
+  // Summary fields
+  summaryEntries?: SummaryEntry[];
+  handle?: string | null;     // e.g. "@thegamerweb"
+  domainLabel?: string | null; // e.g. "thegamer.com" — rendered as the right-edge vertical label
+  categoryLabel?: string | null; // e.g. "gaming · news"
   // Crop focus for whichever image this slide uses (hero or itemImage)
   imagePosition?: ImagePosition | null;
   // Branding
@@ -97,6 +112,7 @@ export async function renderSlide(cfg: RenderConfig): Promise<Buffer> {
 function buildTree(cfg: RenderConfig): ReactNode {
   if (cfg.kind === "cover") return Cover(cfg);
   if (cfg.kind === "outro") return Outro(cfg);
+  if (cfg.kind === "summary") return Summary(cfg);
   return Item(cfg);
 }
 
@@ -337,6 +353,275 @@ function Outro(cfg: RenderConfig) {
       ],
     },
   } as ReactNode;
+}
+
+/**
+ * Single-frame "summary" slide — the whole list at a glance.
+ *
+ * Layout (top to bottom):
+ *   - Site-name banner (small, accent-color, centered)
+ *   - Title with a left accent bar — bold, ~2 lines max
+ *   - Up to 10 rows, each row = rank + thumbnail + heading
+ *       * top row is highlighted (subtle bg, full-opacity rank)
+ *       * remaining rows: rank shown at ~25% opacity
+ *   - Footer bar with @handle (left) and CTA (right, accent color)
+ *
+ * Designed to mirror the editorial Instagram "all-in-one ranking" graphic
+ * format that publishers use (the THEGAMER "Saddest JRPGs" reference shot).
+ */
+function Summary(cfg: RenderConfig) {
+  const entries = (cfg.summaryEntries ?? []).slice(0, 10);
+  const rowCount = entries.length || 10; // avoid divide-by-zero
+  // Header (180) + footer (80) + horizontal padding cells are fixed; rows
+  // share the remaining height evenly so any list 4–10 long looks balanced.
+  const HEADER_H = 260;
+  const FOOTER_H = 72;
+  const ROW_H = Math.floor((SLIDE_H - HEADER_H - FOOTER_H) / rowCount);
+
+  return {
+    type: "div",
+    props: {
+      style: {
+        width: SLIDE_W,
+        height: SLIDE_H,
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: cfg.bgColor,
+        color: cfg.textColor,
+        fontFamily: "Inter",
+        position: "relative",
+      },
+      children: [
+        // Header: site name + title
+        {
+          type: "div",
+          props: {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              padding: "44px 60px 28px",
+              height: HEADER_H,
+              gap: 18,
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+            },
+            children: [
+              {
+                type: "div",
+                props: {
+                  style: {
+                    display: "flex",
+                    alignSelf: "center",
+                    fontSize: 26,
+                    fontWeight: 900,
+                    color: cfg.accentColor,
+                    letterSpacing: 4,
+                    textTransform: "uppercase",
+                  },
+                  children: cfg.siteName ?? "",
+                },
+              },
+              {
+                type: "div",
+                props: {
+                  style: {
+                    display: "flex",
+                    alignItems: "stretch",
+                    gap: 18,
+                  },
+                  children: [
+                    {
+                      type: "div",
+                      props: {
+                        style: {
+                          width: 8,
+                          backgroundColor: cfg.accentColor,
+                          display: "flex",
+                        },
+                        children: "",
+                      },
+                    },
+                    {
+                      type: "div",
+                      props: {
+                        style: {
+                          fontSize: clampFontSize(cfg.title ?? "", 64, 54, 44),
+                          fontWeight: 900,
+                          lineHeight: 1.05,
+                          letterSpacing: -0.5,
+                          textTransform: "uppercase",
+                          display: "flex",
+                        },
+                        children: truncate(cfg.title ?? "", 70),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+        // Rows
+        {
+          type: "div",
+          props: {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              padding: "0 60px",
+            },
+            children: entries.map((e, i) => SummaryRow(e, i === 0, cfg, ROW_H)),
+          },
+        },
+        // Footer
+        {
+          type: "div",
+          props: {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              height: FOOTER_H,
+              padding: "0 60px",
+              borderTop: "1px solid rgba(255,255,255,0.08)",
+            },
+            children: [
+              {
+                type: "div",
+                props: {
+                  style: {
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: cfg.accentColor,
+                    letterSpacing: 1,
+                    display: "flex",
+                  },
+                  children: cfg.handle ?? "",
+                },
+              },
+              {
+                type: "div",
+                props: {
+                  style: {
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: cfg.accentColor,
+                    letterSpacing: 1,
+                    display: "flex",
+                  },
+                  children: cfg.ctaText ?? "LINK IN BIO ↗",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  } as ReactNode;
+}
+
+function SummaryRow(
+  entry: SummaryEntry,
+  highlighted: boolean,
+  cfg: RenderConfig,
+  height: number,
+) {
+  const thumbSize = Math.min(height - 12, 88);
+  const rankText = entry.rank != null ? String(entry.rank).padStart(2, "0") : "•";
+
+  return {
+    type: "div",
+    props: {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        height,
+        // The highlighted row gets a subtle background tint and a thin
+        // accent bar pinned to its left edge — same treatment as the title.
+        backgroundColor: highlighted ? "rgba(255,255,255,0.04)" : "transparent",
+        borderLeft: highlighted ? `4px solid ${cfg.accentColor}` : "4px solid transparent",
+        paddingLeft: 12,
+        paddingRight: 12,
+      },
+      children: [
+        {
+          type: "div",
+          props: {
+            style: {
+              width: 84,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-start",
+              fontSize: 44,
+              fontWeight: 900,
+              color: highlighted ? cfg.accentColor : "rgba(255,255,255,0.22)",
+              fontVariantNumeric: "tabular-nums",
+            },
+            children: rankText,
+          },
+        },
+        // Thumbnail (or accent-colored placeholder when missing)
+        {
+          type: "div",
+          props: {
+            style: {
+              width: thumbSize,
+              height: thumbSize,
+              borderRadius: 6,
+              overflow: "hidden",
+              backgroundColor: entry.imageDataUrl ? "#1a1a1d" : cfg.accentColor,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            },
+            children: entry.imageDataUrl
+              ? [
+                  {
+                    type: "img",
+                    props: {
+                      src: entry.imageDataUrl,
+                      width: thumbSize,
+                      height: thumbSize,
+                      style: {
+                        width: thumbSize,
+                        height: thumbSize,
+                        objectFit: "cover",
+                      },
+                    },
+                  },
+                ]
+              : [],
+          },
+        },
+        // Heading
+        {
+          type: "div",
+          props: {
+            style: {
+              flex: 1,
+              fontSize: rowFontSize(entry.heading),
+              fontWeight: 500,
+              lineHeight: 1.15,
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              // satori has no text-overflow: ellipsis — manually cap length
+              // so a 70-char heading doesn't push out the right edge.
+            },
+            children: truncate(entry.heading, 42),
+          },
+        },
+      ],
+    },
+  };
+}
+
+function rowFontSize(heading: string): number {
+  if (heading.length <= 22) return 38;
+  if (heading.length <= 34) return 32;
+  return 26;
 }
 
 /**

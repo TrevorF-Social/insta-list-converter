@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ExtractResult, BrandConfig, ListItem, ImagePosition } from "./types";
+import { generateFacebookCopy } from "./lib/ai/social-copy";
 
 const DEFAULT_POSITION: ImagePosition = { x: 50, y: 50 };
+const ANTHROPIC_KEY_STORAGE = "anthropic-api-key";
 
 const DEFAULT_BG = "#0b0b0c";
 const DEFAULT_TEXT = "#ffffff";
@@ -26,9 +28,27 @@ export default function Home() {
     logoUrl: null,
   });
   const [coverPosition, setCoverPosition] = useState<ImagePosition>(DEFAULT_POSITION);
+  const [includeSummary, setIncludeSummary] = useState(true);
   const [previews, setPreviews] = useState<string[]>([]);
   const [previewing, setPreviewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Facebook copy generator state
+  const [fbVariants, setFbVariants] = useState<string[]>([]);
+  const [fbLoading, setFbLoading] = useState(false);
+  const [fbError, setFbError] = useState<string | null>(null);
+  const [anthropicKey, setAnthropicKey] = useState("");
+  const [rememberKey, setRememberKey] = useState(false);
+
+  useEffect(() => {
+    // localStorage isn't available during SSR — guard on window.
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(ANTHROPIC_KEY_STORAGE);
+    if (saved) {
+      setAnthropicKey(saved);
+      setRememberKey(true);
+    }
+  }, []);
 
   async function handleExtract(e: React.FormEvent) {
     e.preventDefault();
@@ -69,8 +89,8 @@ export default function Home() {
 
   const slides = useMemo(() => {
     if (!extracted) return [];
-    return buildSlides(extracted, title, items, brand, coverPosition);
-  }, [extracted, title, items, brand, coverPosition]);
+    return buildSlides(extracted, title, items, brand, coverPosition, includeSummary);
+  }, [extracted, title, items, brand, coverPosition, includeSummary]);
 
   async function handlePreview() {
     if (!slides.length) return;
@@ -127,6 +147,39 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Download failed");
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleGenerateFacebookCopy() {
+    if (!extracted) return;
+    if (!anthropicKey.trim()) {
+      setFbError("Paste your Anthropic API key first.");
+      return;
+    }
+    // Persist or clear the key based on the user's preference. Always run this
+    // on click so toggling the checkbox takes effect even if the key didn't change.
+    if (typeof window !== "undefined") {
+      if (rememberKey) {
+        window.localStorage.setItem(ANTHROPIC_KEY_STORAGE, anthropicKey.trim());
+      } else {
+        window.localStorage.removeItem(ANTHROPIC_KEY_STORAGE);
+      }
+    }
+    setFbError(null);
+    setFbLoading(true);
+    try {
+      const variants = await generateFacebookCopy(anthropicKey, {
+        title,
+        items: items.map((it) => ({ rank: it.rank, heading: it.heading })),
+        url: extracted.url,
+        siteName: brand.siteName,
+      });
+      setFbVariants(variants);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Generation failed";
+      setFbError(msg);
+    } finally {
+      setFbLoading(false);
     }
   }
 
@@ -210,6 +263,87 @@ export default function Home() {
                   onChange={setCoverPosition}
                   label="Hero crop focus"
                 />
+              )}
+              <label className="mt-4 flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeSummary}
+                  onChange={(e) => setIncludeSummary(e.target.checked)}
+                  className="accent-white"
+                />
+                Include full-list summary slide
+              </label>
+              <p className="text-xs text-zinc-500 mt-1 ml-6">
+                A single graphic with every entry — rank, thumbnail, and title.
+                Drops in between the entry slides and the outro.
+              </p>
+            </Panel>
+
+            <Panel title="Suggested Facebook copy">
+              <p className="text-xs text-zinc-500 mb-3">
+                Three different angles for promoting this listicle on Facebook.
+                Tuned to social media best practices: 1–2 sentences, hook in the
+                first ~125 characters, no clickbait, no hashtags.
+              </p>
+              <div className="mb-3">
+                <Field label="Your Anthropic API key">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="sk-ant-..."
+                    value={anthropicKey}
+                    onChange={(e) => setAnthropicKey(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-zinc-900 border border-zinc-800 focus:border-zinc-600 outline-none font-mono text-xs"
+                  />
+                </Field>
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={rememberKey}
+                    onChange={(e) => setRememberKey(e.target.checked)}
+                    className="accent-white"
+                  />
+                  Remember this key in my browser
+                </label>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Generation runs in your browser; the key is sent only to
+                  Anthropic. Get one at{" "}
+                  <a
+                    href="https://console.anthropic.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-zinc-300"
+                  >
+                    console.anthropic.com
+                  </a>{" "}
+                  — set a spend limit (e.g. $10/mo) before pasting.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 mb-3">
+                <button
+                  onClick={handleGenerateFacebookCopy}
+                  disabled={fbLoading || !title || items.length === 0 || !anthropicKey.trim()}
+                  className="px-4 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {fbLoading
+                    ? "Generating…"
+                    : fbVariants.length > 0
+                      ? "Regenerate"
+                      : "Generate suggestions"}
+                </button>
+                <span className="text-xs text-zinc-500">
+                  Powered by Claude Sonnet 4.6 (~$0.005 per generation).
+                </span>
+              </div>
+              {fbError && (
+                <p className="text-xs text-red-400 mb-3">{fbError}</p>
+              )}
+              {fbVariants.length > 0 && (
+                <ul className="space-y-2">
+                  {fbVariants.map((v, i) => (
+                    <FacebookVariant key={i} index={i + 1} value={v} />
+                  ))}
+                </ul>
               )}
             </Panel>
 
@@ -467,12 +601,57 @@ function updateItem(
   );
 }
 
+function FacebookVariant({ index, value }: { index: number; value: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Fallback for older browsers / non-secure contexts.
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    }
+  }
+  return (
+    <li className="p-3 rounded bg-zinc-900 border border-zinc-800">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+          Variant {index}
+        </span>
+        <button
+          onClick={copy}
+          className="text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 shrink-0"
+        >
+          {copied ? "Copied ✓" : "Copy"}
+        </button>
+      </div>
+      <p className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">
+        {value}
+      </p>
+    </li>
+  );
+}
+
 function buildSlides(
   extracted: ExtractResult,
   title: string,
   items: ListItem[],
   brand: BrandConfig,
   coverPosition: ImagePosition,
+  includeSummary: boolean,
 ) {
   const common = {
     accentColor: brand.accentColor,
@@ -483,7 +662,7 @@ function buildSlides(
     logoUrl: brand.logoUrl,
     logoDataUrl: brand.logoDataUrl,
   };
-  return [
+  const slides: unknown[] = [
     {
       ...common,
       kind: "cover" as const,
@@ -502,13 +681,30 @@ function buildSlides(
       itemImageUrl: it.imageUrl,
       imagePosition: it.imagePosition ?? DEFAULT_POSITION,
     })),
-    {
-      ...common,
-      kind: "outro" as const,
-      ctaText: "Read the full article",
-      sourceUrl: extracted.url,
-    },
   ];
+  // Summary belongs between the entry slides and the outro: viewers see the
+  // full ranking once after scrolling each pick, then the CTA closes the deck.
+  if (includeSummary) {
+    slides.push({
+      ...common,
+      kind: "summary" as const,
+      title,
+      handle: brand.siteName ? `@${brand.siteName.replace(/\s+/g, "").toUpperCase()}` : null,
+      ctaText: "LINK IN BIO ↗",
+      summaryEntries: items.map((it) => ({
+        rank: it.rank,
+        heading: it.heading,
+        imageUrl: it.imageUrl,
+      })),
+    });
+  }
+  slides.push({
+    ...common,
+    kind: "outro" as const,
+    ctaText: "Read the full article",
+    sourceUrl: extracted.url,
+  });
+  return slides;
 }
 
 function FocalPicker({

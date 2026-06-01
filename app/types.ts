@@ -12,6 +12,12 @@ export type Branding = {
 
 export type ImagePosition = { x: number; y: number };
 
+export type SummaryEntry = {
+  rank: number | null;
+  heading: string;
+  imageUrl: string | null;
+};
+
 export type ListItem = {
   rank: number | null;
   heading: string;

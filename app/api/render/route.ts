@@ -8,7 +8,7 @@ export const maxDuration = 60;
 
 type SlideInput = Omit<
   RenderConfig,
-  "logoDataUrl" | "heroImageDataUrl" | "itemImageDataUrl"
+  "logoDataUrl" | "heroImageDataUrl" | "itemImageDataUrl" | "summaryEntries"
 > & {
   logoUrl?: string | null;
   heroImageUrl?: string | null;
@@ -17,6 +17,14 @@ type SlideInput = Omit<
   logoDataUrl?: string | null;
   heroImageDataUrl?: string | null;
   itemImageDataUrl?: string | null;
+  // Summary slide: each entry carries a URL the server resolves into a data
+  // URL alongside the other image fetches.
+  summaryEntries?: Array<{
+    rank: number | null;
+    heading: string;
+    imageUrl?: string | null;
+    imageDataUrl?: string | null;
+  }>;
 };
 
 type RenderBody = {
@@ -35,11 +43,26 @@ async function resolveImage(
 }
 
 async function prepareSlide(s: SlideInput): Promise<RenderConfig> {
-  const [logo, hero, itemImg] = await Promise.all([
+  // Resolve all images in parallel — logo/hero/item plus, for summary slides,
+  // every entry's thumbnail. Up to ~12 fetches per summary, all in flight at
+  // once, so total render time stays close to the slowest single fetch.
+  const summaryEntriesPromise = s.summaryEntries
+    ? Promise.all(
+        s.summaryEntries.map(async (e) => ({
+          rank: e.rank,
+          heading: e.heading,
+          imageDataUrl: await resolveImage(e.imageDataUrl, e.imageUrl),
+        })),
+      )
+    : Promise.resolve(undefined);
+
+  const [logo, hero, itemImg, summaryEntries] = await Promise.all([
     resolveImage(s.logoDataUrl, s.logoUrl),
     resolveImage(s.heroImageDataUrl, s.heroImageUrl),
     resolveImage(s.itemImageDataUrl, s.itemImageUrl),
+    summaryEntriesPromise,
   ]);
+
   return {
     kind: s.kind,
     title: s.title,
@@ -51,6 +74,9 @@ async function prepareSlide(s: SlideInput): Promise<RenderConfig> {
     body: s.body,
     ctaText: s.ctaText,
     sourceUrl: s.sourceUrl,
+    handle: s.handle,
+    domainLabel: s.domainLabel,
+    categoryLabel: s.categoryLabel,
     accentColor: s.accentColor,
     textColor: s.textColor,
     bgColor: s.bgColor,
@@ -58,6 +84,7 @@ async function prepareSlide(s: SlideInput): Promise<RenderConfig> {
     logoDataUrl: logo,
     heroImageDataUrl: hero,
     itemImageDataUrl: itemImg,
+    summaryEntries,
     imagePosition: s.imagePosition ?? null,
   };
 }
