@@ -626,11 +626,13 @@ function HeroOverlayBrand(cfg: RenderConfig) {
 function SummaryRanked(cfg: RenderConfig) {
   const entries = (cfg.summaryEntries ?? []).slice(0, 10);
   const rowCount = entries.length || 10; // avoid divide-by-zero
-  // Header (180) + footer (80) + horizontal padding cells are fixed; rows
-  // share the remaining height evenly so any list 4–10 long looks balanced.
+  // No footer: TheGamer's ranked layout used to carry @handle + LINK-IN-BIO
+  // along the bottom, but that pattern duplicated the site-name banner up top
+  // and crowded the layout. Header + a bit of bottom breathing room is all
+  // we need; rows share the remaining height.
   const HEADER_H = 260;
-  const FOOTER_H = 72;
-  const ROW_H = Math.floor((SLIDE_H - HEADER_H - FOOTER_H) / rowCount);
+  const FOOTER_PAD = 28;
+  const ROW_H = Math.floor((SLIDE_H - HEADER_H - FOOTER_PAD) / rowCount);
 
   return {
     type: "div",
@@ -714,7 +716,8 @@ function SummaryRanked(cfg: RenderConfig) {
             ],
           },
         },
-        // Rows
+        // Rows — take up everything below the header. The pad-bottom on the
+        // outer container is what stands in for the former footer area.
         {
           type: "div",
           props: {
@@ -722,51 +725,9 @@ function SummaryRanked(cfg: RenderConfig) {
               display: "flex",
               flexDirection: "column",
               flex: 1,
-              padding: "0 60px",
+              padding: `0 60px ${FOOTER_PAD}px`,
             },
             children: entries.map((e, i) => SummaryRow(e, i === 0, cfg, ROW_H)),
-          },
-        },
-        // Footer
-        {
-          type: "div",
-          props: {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              height: FOOTER_H,
-              padding: "0 60px",
-              borderTop: "1px solid rgba(255,255,255,0.08)",
-            },
-            children: [
-              {
-                type: "div",
-                props: {
-                  style: {
-                    fontSize: 22,
-                    fontWeight: 700,
-                    color: cfg.accentColor,
-                    letterSpacing: 1,
-                    display: "flex",
-                  },
-                  children: cfg.handle ?? "",
-                },
-              },
-              {
-                type: "div",
-                props: {
-                  style: {
-                    fontSize: 22,
-                    fontWeight: 700,
-                    color: cfg.accentColor,
-                    letterSpacing: 1,
-                    display: "flex",
-                  },
-                  children: cfg.ctaText ?? "LINK IN BIO ↗",
-                },
-              },
-            ],
           },
         },
       ],
