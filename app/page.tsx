@@ -1,11 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ExtractResult, BrandConfig, ListItem, ImagePosition } from "./types";
+import type {
+  ExtractResult,
+  BrandConfig,
+  ListItem,
+  ImagePosition,
+  SummaryStyle,
+} from "./types";
 import { generateFacebookCopy } from "./lib/ai/social-copy";
 
 const DEFAULT_POSITION: ImagePosition = { x: 50, y: 50 };
 const ANTHROPIC_KEY_STORAGE = "anthropic-api-key";
+
+/**
+ * Per-publisher summary-style preferences. GameRant uses the hero-overlay
+ * layout (full-bleed photo + white pill cards); everyone else gets the
+ * default ranked layout. Users can still override per-article in the UI.
+ */
+function defaultSummaryStyleFor(domain: string | null | undefined): SummaryStyle {
+  if (!domain) return "ranked";
+  if (/(^|\.)gamerant\.com$/i.test(domain)) return "hero-overlay";
+  return "ranked";
+}
 
 const DEFAULT_BG = "#0b0b0c";
 const DEFAULT_TEXT = "#ffffff";
@@ -29,6 +46,7 @@ export default function Home() {
   });
   const [coverPosition, setCoverPosition] = useState<ImagePosition>(DEFAULT_POSITION);
   const [includeSummary, setIncludeSummary] = useState(true);
+  const [summaryStyle, setSummaryStyle] = useState<SummaryStyle>("ranked");
   const [previews, setPreviews] = useState<string[]>([]);
   const [previewing, setPreviewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -80,6 +98,9 @@ export default function Home() {
         logoDataUrl: result.branding.logoDataUrl,
         logoUrl: result.branding.logoUrl,
       });
+      // Pick a summary layout based on the source publisher. The user can
+      // still override below, but this lands them on the "right" default.
+      setSummaryStyle(defaultSummaryStyleFor(result.branding.domain));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -89,8 +110,8 @@ export default function Home() {
 
   const slides = useMemo(() => {
     if (!extracted) return [];
-    return buildSlides(extracted, title, items, brand, coverPosition, includeSummary);
-  }, [extracted, title, items, brand, coverPosition, includeSummary]);
+    return buildSlides(extracted, title, items, brand, coverPosition, includeSummary, summaryStyle);
+  }, [extracted, title, items, brand, coverPosition, includeSummary, summaryStyle]);
 
   async function handlePreview() {
     if (!slides.length) return;
@@ -274,9 +295,33 @@ export default function Home() {
                 Include full-list summary slide
               </label>
               <p className="text-xs text-zinc-500 mt-1 ml-6">
-                A single graphic with every entry — rank, thumbnail, and title.
-                Drops in between the entry slides and the outro.
+                A single graphic with every entry. Drops in between the entry
+                slides and the outro.
               </p>
+              {includeSummary && (
+                <div className="mt-2 ml-6">
+                  <label className="block text-xs text-zinc-500 mb-1">
+                    Summary layout
+                  </label>
+                  <select
+                    value={summaryStyle}
+                    onChange={(e) =>
+                      setSummaryStyle(e.target.value as SummaryStyle)
+                    }
+                    className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-xs"
+                  >
+                    <option value="ranked">
+                      Ranked list (rank + thumbnail per row)
+                    </option>
+                    <option value="hero-overlay">
+                      Hero photo + white pill cards (GameRant)
+                    </option>
+                  </select>
+                  <p className="text-xs text-zinc-600 mt-1">
+                    Defaults based on the source site; override per article.
+                  </p>
+                </div>
+              )}
             </Panel>
 
             <Panel title="Suggested Facebook copy">
@@ -652,6 +697,7 @@ function buildSlides(
   brand: BrandConfig,
   coverPosition: ImagePosition,
   includeSummary: boolean,
+  summaryStyle: SummaryStyle,
 ) {
   const common = {
     accentColor: brand.accentColor,
@@ -689,8 +735,12 @@ function buildSlides(
       ...common,
       kind: "summary" as const,
       title,
+      summaryStyle,
       handle: brand.siteName ? `@${brand.siteName.replace(/\s+/g, "").toUpperCase()}` : null,
       ctaText: "LINK IN BIO ↗",
+      // hero-overlay layout fills the slide with the article hero photo;
+      // ranked layout ignores this field.
+      heroImageUrl: extracted.heroImageUrl,
       summaryEntries: items.map((it) => ({
         rank: it.rank,
         heading: it.heading,

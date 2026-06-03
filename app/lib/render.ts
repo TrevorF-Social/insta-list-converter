@@ -25,6 +25,14 @@ export type SummaryEntry = {
   imageDataUrl?: string | null;
 };
 
+/**
+ * Visual layout for the all-in-one summary slide.
+ *  - "ranked"        TheGamer-style ranked list with thumbnails per row.
+ *  - "hero-overlay"  GameRant-style full-bleed hero photo with white pill
+ *                    cards stacked on the right.
+ */
+export type SummaryStyle = "ranked" | "hero-overlay";
+
 export type RenderConfig = {
   kind: SlideKind;
   // Cover fields
@@ -43,6 +51,7 @@ export type RenderConfig = {
   sourceUrl?: string;
   // Summary fields
   summaryEntries?: SummaryEntry[];
+  summaryStyle?: SummaryStyle;
   handle?: string | null;     // e.g. "@thegamerweb"
   domainLabel?: string | null; // e.g. "thegamer.com" — rendered as the right-edge vertical label
   categoryLabel?: string | null; // e.g. "gaming · news"
@@ -356,20 +365,269 @@ function Outro(cfg: RenderConfig) {
 }
 
 /**
- * Single-frame "summary" slide — the whole list at a glance.
- *
- * Layout (top to bottom):
- *   - Site-name banner (small, accent-color, centered)
- *   - Title with a left accent bar — bold, ~2 lines max
- *   - Up to 10 rows, each row = rank + thumbnail + heading
- *       * top row is highlighted (subtle bg, full-opacity rank)
- *       * remaining rows: rank shown at ~25% opacity
- *   - Footer bar with @handle (left) and CTA (right, accent color)
- *
- * Designed to mirror the editorial Instagram "all-in-one ranking" graphic
- * format that publishers use (the THEGAMER "Saddest JRPGs" reference shot).
+ * Single-frame "summary" slide. Dispatches on cfg.summaryStyle:
+ *  - "hero-overlay": full-bleed hero photo + white pill cards on the right
+ *    (GameRant editorial style)
+ *  - "ranked" (default): TheGamer-style ranked list with per-row thumbnails
  */
 function Summary(cfg: RenderConfig) {
+  if (cfg.summaryStyle === "hero-overlay") return SummaryHeroOverlay(cfg);
+  return SummaryRanked(cfg);
+}
+
+/**
+ * GameRant-style summary: the article's hero image fills the slide, the title
+ * sits on a dark scrim at the top, and the list of entries is rendered as a
+ * column of right-aligned white pill cards. No rank numbers (these articles
+ * usually aren't ranked, just curated). Brand wordmark anchors the bottom.
+ */
+function SummaryHeroOverlay(cfg: RenderConfig) {
+  const entries = (cfg.summaryEntries ?? []).slice(0, 10);
+  const hasHero = !!cfg.heroImageDataUrl;
+
+  // Backdrop: hero image if we have one, otherwise a flat accent panel so
+  // the cards still have something to sit on.
+  const backdrop = hasHero
+    ? {
+        type: "img",
+        props: {
+          src: cfg.heroImageDataUrl,
+          width: SLIDE_W,
+          height: SLIDE_H,
+          style: {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: SLIDE_W,
+            height: SLIDE_H,
+            objectFit: "cover",
+          },
+        },
+      }
+    : {
+        type: "div",
+        props: {
+          style: {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: SLIDE_W,
+            height: SLIDE_H,
+            backgroundColor: cfg.bgColor,
+            display: "flex",
+          },
+        },
+      };
+
+  // Title scrim — dark band at the top so the white headline reads against
+  // any photo. Fades out so the lower hero content stays visible.
+  const titleScrim = {
+    type: "div",
+    props: {
+      style: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: SLIDE_W,
+        height: 260,
+        background:
+          "linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0) 100%)",
+        display: "flex",
+      },
+    },
+  };
+
+  // Bottom scrim so the brand wordmark stays legible too.
+  const footerScrim = {
+    type: "div",
+    props: {
+      style: {
+        position: "absolute",
+        bottom: 0,
+        left: 0,
+        width: SLIDE_W,
+        height: 160,
+        background:
+          "linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%)",
+        display: "flex",
+      },
+    },
+  };
+
+  return {
+    type: "div",
+    props: {
+      style: {
+        width: SLIDE_W,
+        height: SLIDE_H,
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: cfg.bgColor,
+        color: "#fff",
+        fontFamily: "Inter",
+        position: "relative",
+      },
+      children: [
+        backdrop,
+        titleScrim,
+        footerScrim,
+        {
+          type: "div",
+          props: {
+            style: {
+              position: "relative",
+              padding: "50px 50px 110px",
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+            },
+            children: [
+              // Title
+              {
+                type: "div",
+                props: {
+                  style: {
+                    fontSize: clampFontSize(cfg.title ?? "", 46, 40, 34),
+                    fontWeight: 900,
+                    lineHeight: 1.08,
+                    letterSpacing: -0.5,
+                    textTransform: "uppercase",
+                    color: "#fff",
+                    maxWidth: 980,
+                    display: "flex",
+                  },
+                  children: truncate(cfg.title ?? "", 90),
+                },
+              },
+              // Cards column — flex 1 so cards distribute through the
+              // remaining vertical space. alignItems flex-end pushes the
+              // whole column to the right edge.
+              {
+                type: "div",
+                props: {
+                  style: {
+                    display: "flex",
+                    flexDirection: "column",
+                    flex: 1,
+                    alignItems: "flex-end",
+                    justifyContent: "center",
+                    gap: 10,
+                    marginTop: 36,
+                  },
+                  children: entries.map((e) => HeroOverlayCard(e)),
+                },
+              },
+            ],
+          },
+        },
+        // Brand wordmark / logo at the bottom-center
+        {
+          type: "div",
+          props: {
+            style: {
+              position: "absolute",
+              bottom: 36,
+              left: 0,
+              width: SLIDE_W,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: CHIP_H,
+            },
+            children: [HeroOverlayBrand(cfg)],
+          },
+        },
+      ],
+    },
+  } as ReactNode;
+}
+
+function HeroOverlayCard(entry: SummaryEntry) {
+  return {
+    type: "div",
+    props: {
+      style: {
+        display: "flex",
+        alignSelf: "flex-end",
+        backgroundColor: "#ffffff",
+        color: "#0b0b0c",
+        padding: "16px 26px",
+        borderRadius: 4,
+        fontSize: cardFontSize(entry.heading),
+        fontWeight: 800,
+        textTransform: "uppercase",
+        letterSpacing: 0.3,
+        lineHeight: 1.1,
+        maxWidth: 540,
+      },
+      children: truncate(entry.heading, 38),
+    },
+  };
+}
+
+function cardFontSize(text: string): number {
+  if (text.length <= 16) return 32;
+  if (text.length <= 26) return 28;
+  return 24;
+}
+
+function HeroOverlayBrand(cfg: RenderConfig) {
+  // Prefer the actual logo image; fall back to a wordmark rendering of the
+  // site name in white, with the back half tinted accent (matching GameRant
+  // wordmark style: "GAME" white + "RANT" orange).
+  if (cfg.logoDataUrl) {
+    return {
+      type: "img",
+      props: {
+        src: cfg.logoDataUrl,
+        width: 320,
+        height: CHIP_H,
+        style: {
+          width: 320,
+          height: CHIP_H,
+          objectFit: "contain",
+        },
+      },
+    };
+  }
+  const name = (cfg.siteName ?? "").toUpperCase();
+  // Split the wordmark roughly in half so the back portion picks up the
+  // brand accent — mirrors GAME (white) / RANT (orange) without us hard-
+  // coding the publisher name.
+  const split = Math.max(2, Math.floor(name.length / 2));
+  const left = name.slice(0, split);
+  const right = name.slice(split);
+  return {
+    type: "div",
+    props: {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        fontSize: 42,
+        fontWeight: 900,
+        letterSpacing: 3,
+        color: "#fff",
+      },
+      children: [
+        { type: "div", props: { style: { display: "flex" }, children: left } },
+        {
+          type: "div",
+          props: {
+            style: { display: "flex", color: cfg.accentColor },
+            children: right,
+          },
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Original TheGamer-style ranked summary. Header banner with site name, big
+ * title under a left accent bar, then ranked rows with rank + thumbnail +
+ * heading. Top entry highlighted, footer with @handle + CTA.
+ */
+function SummaryRanked(cfg: RenderConfig) {
   const entries = (cfg.summaryEntries ?? []).slice(0, 10);
   const rowCount = entries.length || 10; // avoid divide-by-zero
   // Header (180) + footer (80) + horizontal padding cells are fixed; rows

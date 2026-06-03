@@ -49,6 +49,13 @@ export async function extractArticle(url: string): Promise<ExtractResult & { fet
   $(
     "nav, aside, footer, [role='navigation'], [role='banner'], [role='contentinfo'], [role='complementary'], .site-nav, .navbar, .site-menu, .site-header, .site-footer, .sidebar, style, noscript",
   ).remove();
+  // Strip Valnet's interactive "play to rank" / quiz mini-game widgets that
+  // embed inside article bodies. They emit <h2>s like "Results" and "Your
+  // Order" that otherwise pollute listicle entries — and they contribute no
+  // real content to the article.
+  $(
+    "#stage, .glassCard, [class*='results-card'], [class*='results-panel'], [class*='game-panel'], [class*='game-shell'], [id='chronologic'], [id^='panel'][class*='panel']",
+  ).remove();
   // Strip scripts EXCEPT those nested inside gallery wrappers — Valnet's
   // gallery widget stores its per-entry image URLs inside an inline
   // <script type="module"> block, and the regex fallback in firstImageIn

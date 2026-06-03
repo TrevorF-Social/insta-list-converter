@@ -74,6 +74,7 @@ async function prepareSlide(s: SlideInput): Promise<RenderConfig> {
     body: s.body,
     ctaText: s.ctaText,
     sourceUrl: s.sourceUrl,
+    summaryStyle: s.summaryStyle,
     handle: s.handle,
     domainLabel: s.domainLabel,
     categoryLabel: s.categoryLabel,
