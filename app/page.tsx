@@ -47,6 +47,11 @@ export default function Home() {
   const [coverPosition, setCoverPosition] = useState<ImagePosition>(DEFAULT_POSITION);
   const [includeSummary, setIncludeSummary] = useState(true);
   const [summaryStyle, setSummaryStyle] = useState<SummaryStyle>("ranked");
+  // Hero-overlay summary: which image fills the backdrop, plus focal point.
+  // "article" = article hero, "entry-N" = items[N].imageUrl, "custom" = uploaded.
+  const [summaryHeroChoice, setSummaryHeroChoice] = useState<string>("article");
+  const [summaryCustomHero, setSummaryCustomHero] = useState<string | null>(null);
+  const [summaryHeroPosition, setSummaryHeroPosition] = useState<ImagePosition>(DEFAULT_POSITION);
   const [previews, setPreviews] = useState<string[]>([]);
   const [previewing, setPreviewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -75,6 +80,11 @@ export default function Home() {
     setExtracted(null);
     setPreviews([]);
     setCoverPosition(DEFAULT_POSITION);
+    // Re-extracting an article wipes any previous summary-hero selection so
+    // we don't end up pointing at an entry index that no longer exists.
+    setSummaryHeroChoice("article");
+    setSummaryCustomHero(null);
+    setSummaryHeroPosition(DEFAULT_POSITION);
     try {
       const r = await fetch("/api/extract", {
         method: "POST",
@@ -108,10 +118,51 @@ export default function Home() {
     }
   }
 
+  // Source of the summary slide's backdrop image, derived from the user's
+  // dropdown choice. Lives in a memo so the FocalPicker and the slide config
+  // share a single source of truth.
+  const summaryHero = useMemo(() => {
+    if (summaryHeroChoice === "custom") {
+      return { url: null as string | null, dataUrl: summaryCustomHero };
+    }
+    if (summaryHeroChoice.startsWith("entry-")) {
+      const idx = parseInt(summaryHeroChoice.slice("entry-".length), 10);
+      return { url: items[idx]?.imageUrl ?? null, dataUrl: null };
+    }
+    return { url: extracted?.heroImageUrl ?? null, dataUrl: null };
+  }, [summaryHeroChoice, summaryCustomHero, items, extracted]);
+
   const slides = useMemo(() => {
     if (!extracted) return [];
-    return buildSlides(extracted, title, items, brand, coverPosition, includeSummary, summaryStyle);
-  }, [extracted, title, items, brand, coverPosition, includeSummary, summaryStyle]);
+    return buildSlides(
+      extracted,
+      title,
+      items,
+      brand,
+      coverPosition,
+      includeSummary,
+      summaryStyle,
+      { hero: summaryHero, position: summaryHeroPosition },
+    );
+  }, [
+    extracted,
+    title,
+    items,
+    brand,
+    coverPosition,
+    includeSummary,
+    summaryStyle,
+    summaryHero,
+    summaryHeroPosition,
+  ]);
+
+  function handleSummaryHeroUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setSummaryCustomHero(reader.result as string);
+    reader.readAsDataURL(file);
+  }
 
   async function handlePreview() {
     if (!slides.length) return;
@@ -299,27 +350,84 @@ export default function Home() {
                 slides and the outro.
               </p>
               {includeSummary && (
-                <div className="mt-2 ml-6">
-                  <label className="block text-xs text-zinc-500 mb-1">
-                    Summary layout
-                  </label>
-                  <select
-                    value={summaryStyle}
-                    onChange={(e) =>
-                      setSummaryStyle(e.target.value as SummaryStyle)
-                    }
-                    className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-xs"
-                  >
-                    <option value="ranked">
-                      Ranked list (rank + thumbnail per row)
-                    </option>
-                    <option value="hero-overlay">
-                      Hero photo + white pill cards (GameRant)
-                    </option>
-                  </select>
-                  <p className="text-xs text-zinc-600 mt-1">
-                    Defaults based on the source site; override per article.
-                  </p>
+                <div className="mt-2 ml-6 space-y-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">
+                      Summary layout
+                    </label>
+                    <select
+                      value={summaryStyle}
+                      onChange={(e) =>
+                        setSummaryStyle(e.target.value as SummaryStyle)
+                      }
+                      className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-xs"
+                    >
+                      <option value="ranked">
+                        Ranked list (rank + thumbnail per row)
+                      </option>
+                      <option value="hero-overlay">
+                        Hero photo + white pill cards (GameRant)
+                      </option>
+                    </select>
+                    <p className="text-xs text-zinc-600 mt-1">
+                      Defaults based on the source site; override per article.
+                    </p>
+                  </div>
+                  {summaryStyle === "hero-overlay" && (
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">
+                        Summary background image
+                      </label>
+                      <select
+                        value={summaryHeroChoice}
+                        onChange={(e) => {
+                          setSummaryHeroChoice(e.target.value);
+                          setSummaryHeroPosition(DEFAULT_POSITION);
+                        }}
+                        className="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-xs"
+                      >
+                        <option value="article">Article hero</option>
+                        {items.map((it, i) => (
+                          <option key={i} value={`entry-${i}`}>
+                            #{it.rank ?? i + 1}:{" "}
+                            {it.heading.length > 40
+                              ? it.heading.slice(0, 40) + "…"
+                              : it.heading}
+                          </option>
+                        ))}
+                        <option value="custom">Upload custom…</option>
+                      </select>
+                      {summaryHeroChoice === "custom" && (
+                        <div className="mt-2 space-y-2">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleSummaryHeroUpload}
+                            className="text-xs"
+                          />
+                          {summaryCustomHero && (
+                            <button
+                              onClick={() => setSummaryCustomHero(null)}
+                              className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+                              type="button"
+                            >
+                              Clear upload
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {(summaryHero.dataUrl ?? summaryHero.url) && (
+                        <div className="mt-3">
+                          <FocalPicker
+                            src={summaryHero.dataUrl ?? summaryHero.url ?? ""}
+                            position={summaryHeroPosition}
+                            onChange={setSummaryHeroPosition}
+                            label="Summary crop focus"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </Panel>
@@ -689,6 +797,10 @@ function buildSlides(
   coverPosition: ImagePosition,
   includeSummary: boolean,
   summaryStyle: SummaryStyle,
+  summary: {
+    hero: { url: string | null; dataUrl: string | null };
+    position: ImagePosition;
+  },
 ) {
   const common = {
     accentColor: brand.accentColor,
@@ -728,9 +840,12 @@ function buildSlides(
       summaryStyle,
       handle: brand.siteName ? `@${brand.siteName.replace(/\s+/g, "").toUpperCase()}` : null,
       ctaText: "LINK IN BIO ↗",
-      // hero-overlay layout fills the slide with the article hero photo;
-      // ranked layout ignores this field.
-      heroImageUrl: extracted.heroImageUrl,
+      // hero-overlay layout fills the slide with this image (user-selectable
+      // from article hero / any entry image / custom upload). The ranked
+      // layout ignores both fields.
+      heroImageUrl: summary.hero.url,
+      heroImageDataUrl: summary.hero.dataUrl,
+      imagePosition: summary.position,
       summaryEntries: items.map((it) => ({
         rank: it.rank,
         heading: it.heading,

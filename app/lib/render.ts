@@ -371,6 +371,9 @@ function Summary(cfg: RenderConfig) {
 function SummaryHeroOverlay(cfg: RenderConfig) {
   const entries = (cfg.summaryEntries ?? []).slice(0, 10);
   const hasHero = !!cfg.heroImageDataUrl;
+  const cardFontSize = uniformCardFontSize(entries);
+  // Crop focus for the backdrop. (50, 50) is the centered default.
+  const pos = cfg.imagePosition ?? { x: 50, y: 50 };
 
   // Backdrop: hero image if we have one, otherwise a flat accent panel so
   // the cards still have something to sit on.
@@ -388,6 +391,7 @@ function SummaryHeroOverlay(cfg: RenderConfig) {
             width: SLIDE_W,
             height: SLIDE_H,
             objectFit: "cover",
+            objectPosition: `${pos.x}% ${pos.y}%`,
           },
         },
       }
@@ -508,7 +512,7 @@ function SummaryHeroOverlay(cfg: RenderConfig) {
               justifyContent: "center",
               gap: 12,
             },
-            children: entries.map((e) => HeroOverlayCard(e)),
+            children: entries.map((e) => HeroOverlayCard(e, cardFontSize)),
           },
         },
         // Brand wordmark / logo at the bottom-center
@@ -533,38 +537,61 @@ function SummaryHeroOverlay(cfg: RenderConfig) {
   } as ReactNode;
 }
 
-function HeroOverlayCard(entry: SummaryEntry) {
+// Fixed card geometry so every entry's white box is identical. Width is
+// locked; the font size is chosen once per slide to fit the longest entry,
+// then every card uses that same size. Old behavior scaled per-card and
+// made the right column feel uneven.
+const HERO_OVERLAY_CARD_WIDTH = 580;
+const HERO_OVERLAY_CARD_PAD_X = 32;
+const HERO_OVERLAY_CARD_MAX_CHARS = 36;
+
+/**
+ * Pick the largest font size that lets every entry fit on one line inside
+ * the fixed-width card. Inter Bold uppercase runs ~0.58×font width per char;
+ * each tier here keeps a small safety margin off the available text width.
+ */
+function uniformCardFontSize(entries: SummaryEntry[]): number {
+  let longest = 0;
+  for (const e of entries) {
+    const len = Math.min(e.heading.length, HERO_OVERLAY_CARD_MAX_CHARS);
+    if (len > longest) longest = len;
+  }
+  if (longest <= 12) return 40;
+  if (longest <= 16) return 36;
+  if (longest <= 20) return 32;
+  if (longest <= 26) return 28;
+  if (longest <= 32) return 24;
+  return 22;
+}
+
+function HeroOverlayCard(entry: SummaryEntry, fontSize: number) {
   return {
     type: "div",
     props: {
       style: {
         display: "flex",
         alignSelf: "flex-end",
+        alignItems: "center",
+        justifyContent: "flex-start",
         backgroundColor: "#ffffff",
         color: "#0b0b0c",
-        padding: "18px 32px",
+        width: HERO_OVERLAY_CARD_WIDTH,
+        padding: `18px ${HERO_OVERLAY_CARD_PAD_X}px`,
         // Rounded only on the left so the card looks like it slides in from
         // off the page — flush with the slide's right edge.
         borderTopLeftRadius: 6,
         borderBottomLeftRadius: 6,
         borderTopRightRadius: 0,
         borderBottomRightRadius: 0,
-        fontSize: cardFontSize(entry.heading),
+        fontSize,
         fontWeight: 800,
         textTransform: "uppercase",
         letterSpacing: 0.3,
         lineHeight: 1.1,
-        maxWidth: 700,
       },
-      children: truncate(entry.heading, 38),
+      children: truncate(entry.heading, HERO_OVERLAY_CARD_MAX_CHARS),
     },
   };
-}
-
-function cardFontSize(text: string): number {
-  if (text.length <= 14) return 40;
-  if (text.length <= 22) return 34;
-  return 28;
 }
 
 function HeroOverlayBrand(cfg: RenderConfig) {
