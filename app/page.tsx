@@ -442,15 +442,6 @@ export default function Home() {
                         ✕
                       </button>
                     </div>
-                    <textarea
-                      value={it.body}
-                      onChange={(e) =>
-                        updateItem(setItems, i, { body: e.target.value })
-                      }
-                      rows={2}
-                      placeholder="Body (optional)"
-                      className="w-full px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-sm resize-none"
-                    />
                     {it.imageUrl && (
                       <FocalPicker
                         src={it.imageUrl}
@@ -723,7 +714,6 @@ function buildSlides(
       kind: "item" as const,
       rank: it.rank,
       heading: it.heading,
-      body: it.body,
       itemImageUrl: it.imageUrl,
       imagePosition: it.imagePosition ?? DEFAULT_POSITION,
     })),

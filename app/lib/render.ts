@@ -181,19 +181,6 @@ function Item(cfg: RenderConfig) {
           children: cfg.heading ?? "",
         },
       },
-      cfg.body && {
-        type: "div",
-        props: {
-          style: {
-            fontSize: 26,
-            fontWeight: 400,
-            lineHeight: 1.4,
-            opacity: 0.9,
-            maxWidth: 880,
-          },
-          children: truncate(cfg.body, 200),
-        },
-      },
     ].filter(Boolean) as ReactNode[],
   });
 }
@@ -420,7 +407,8 @@ function SummaryHeroOverlay(cfg: RenderConfig) {
       };
 
   // Title scrim — dark band at the top so the white headline reads against
-  // any photo. Fades out so the lower hero content stays visible.
+  // any photo. Stronger than before because the title is now bigger and
+  // sometimes spans 3 lines; the fade extends further down to cover it.
   const titleScrim = {
     type: "div",
     props: {
@@ -429,9 +417,9 @@ function SummaryHeroOverlay(cfg: RenderConfig) {
         top: 0,
         left: 0,
         width: SLIDE_W,
-        height: 260,
+        height: 360,
         background:
-          "linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0) 100%)",
+          "linear-gradient(180deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.75) 50%, rgba(0,0,0,0) 100%)",
         display: "flex",
       },
     },
@@ -471,53 +459,56 @@ function SummaryHeroOverlay(cfg: RenderConfig) {
         backdrop,
         titleScrim,
         footerScrim,
+        // Title row — full width, padded both sides, centered. Lives in its
+        // own container so the cards column below can run right up to the
+        // slide's right edge without nudging the title with it.
         {
           type: "div",
           props: {
             style: {
               position: "relative",
-              padding: "50px 50px 110px",
+              padding: "56px 40px 0",
               display: "flex",
-              flexDirection: "column",
-              flex: 1,
+              justifyContent: "center",
             },
             children: [
-              // Title
               {
                 type: "div",
                 props: {
                   style: {
-                    fontSize: clampFontSize(cfg.title ?? "", 46, 40, 34),
+                    display: "flex",
+                    fontSize: clampFontSize(cfg.title ?? "", 60, 52, 44),
                     fontWeight: 900,
-                    lineHeight: 1.08,
+                    lineHeight: 1.05,
                     letterSpacing: -0.5,
                     textTransform: "uppercase",
                     color: "#fff",
-                    maxWidth: 980,
-                    display: "flex",
+                    textAlign: "center",
+                    maxWidth: 1000,
                   },
-                  children: truncate(cfg.title ?? "", 90),
-                },
-              },
-              // Cards column — flex 1 so cards distribute through the
-              // remaining vertical space. alignItems flex-end pushes the
-              // whole column to the right edge.
-              {
-                type: "div",
-                props: {
-                  style: {
-                    display: "flex",
-                    flexDirection: "column",
-                    flex: 1,
-                    alignItems: "flex-end",
-                    justifyContent: "center",
-                    gap: 10,
-                    marginTop: 36,
-                  },
-                  children: entries.map((e) => HeroOverlayCard(e)),
+                  children: truncate(cfg.title ?? "", 110),
                 },
               },
             ],
+          },
+        },
+        // Cards column — runs from the left padding straight to the slide's
+        // right edge (no right padding on the container) so each white card
+        // bleeds flush with the right edge and looks tucked in from off-page.
+        {
+          type: "div",
+          props: {
+            style: {
+              position: "relative",
+              padding: "32px 0 110px 40px",
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              alignItems: "flex-end",
+              justifyContent: "center",
+              gap: 12,
+            },
+            children: entries.map((e) => HeroOverlayCard(e)),
           },
         },
         // Brand wordmark / logo at the bottom-center
@@ -551,14 +542,19 @@ function HeroOverlayCard(entry: SummaryEntry) {
         alignSelf: "flex-end",
         backgroundColor: "#ffffff",
         color: "#0b0b0c",
-        padding: "16px 26px",
-        borderRadius: 4,
+        padding: "18px 32px",
+        // Rounded only on the left so the card looks like it slides in from
+        // off the page — flush with the slide's right edge.
+        borderTopLeftRadius: 6,
+        borderBottomLeftRadius: 6,
+        borderTopRightRadius: 0,
+        borderBottomRightRadius: 0,
         fontSize: cardFontSize(entry.heading),
         fontWeight: 800,
         textTransform: "uppercase",
         letterSpacing: 0.3,
         lineHeight: 1.1,
-        maxWidth: 540,
+        maxWidth: 700,
       },
       children: truncate(entry.heading, 38),
     },
@@ -566,9 +562,9 @@ function HeroOverlayCard(entry: SummaryEntry) {
 }
 
 function cardFontSize(text: string): number {
-  if (text.length <= 16) return 32;
-  if (text.length <= 26) return 28;
-  return 24;
+  if (text.length <= 14) return 40;
+  if (text.length <= 22) return 34;
+  return 28;
 }
 
 function HeroOverlayBrand(cfg: RenderConfig) {
