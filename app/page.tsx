@@ -164,6 +164,26 @@ export default function Home() {
     reader.readAsDataURL(file);
   }
 
+  function handleItemImageUpload(
+    e: React.ChangeEvent<HTMLInputElement>,
+    index: number,
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () =>
+      updateItem(setItems, index, {
+        imageDataUrl: reader.result as string,
+        // Reset focal point when the image source changes so the user starts
+        // from center rather than a stale crop tuned for the previous image.
+        imagePosition: DEFAULT_POSITION,
+      });
+    reader.readAsDataURL(file);
+    // Allow re-uploading the same file again (Chrome won't fire change a
+    // second time for the same filename unless we reset the input value).
+    e.target.value = "";
+  }
+
   async function handlePreview() {
     if (!slides.length) return;
     setPreviewing(true);
@@ -505,62 +525,131 @@ export default function Home() {
               action={
                 <button
                   onClick={() =>
-                    setItems((prev) => [
-                      ...prev,
-                      { rank: prev.length + 1, heading: "", body: "", imageUrl: null },
-                    ])
+                    setItems((prev) => {
+                      // Next rank = one past the current max, so manual
+                      // inserts default to the end of the sequence even if
+                      // the list is partial / reordered.
+                      const maxRank = prev.reduce(
+                        (m, it) => (it.rank != null && it.rank > m ? it.rank : m),
+                        0,
+                      );
+                      return [
+                        ...prev,
+                        {
+                          rank: maxRank + 1,
+                          heading: "",
+                          body: "",
+                          imageUrl: null,
+                          imageDataUrl: null,
+                        },
+                      ];
+                    })
                   }
                   className="text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
                 >
-                  + Add
+                  + Add entry
                 </button>
               }
             >
               <div className="space-y-3">
-                {items.map((it, i) => (
-                  <div
-                    key={i}
-                    className="p-3 rounded bg-zinc-900 border border-zinc-800 space-y-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={it.rank ?? ""}
-                        onChange={(e) =>
-                          updateItem(setItems, i, {
-                            rank: e.target.value ? Number(e.target.value) : null,
-                          })
-                        }
-                        className="w-16 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-sm"
-                      />
-                      <input
-                        value={it.heading}
-                        onChange={(e) =>
-                          updateItem(setItems, i, { heading: e.target.value })
-                        }
-                        placeholder="Heading"
-                        className="flex-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-sm font-medium"
-                      />
-                      <button
-                        onClick={() =>
-                          setItems((prev) => prev.filter((_, j) => j !== i))
-                        }
-                        className="text-xs text-zinc-500 hover:text-red-400 px-2"
-                      >
-                        ✕
-                      </button>
+                {items.map((it, i) => {
+                  const effectiveImage = it.imageDataUrl ?? it.imageUrl;
+                  return (
+                    <div
+                      key={i}
+                      className="p-3 rounded bg-zinc-900 border border-zinc-800 space-y-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={it.rank ?? ""}
+                          onChange={(e) =>
+                            updateItem(setItems, i, {
+                              rank: e.target.value ? Number(e.target.value) : null,
+                            })
+                          }
+                          className="w-16 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-sm"
+                        />
+                        <input
+                          value={it.heading}
+                          onChange={(e) =>
+                            updateItem(setItems, i, { heading: e.target.value })
+                          }
+                          placeholder="Heading"
+                          className="flex-1 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-sm font-medium"
+                        />
+                        <div className="flex flex-col">
+                          <button
+                            onClick={() => moveItem(setItems, i, -1)}
+                            disabled={i === 0}
+                            className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed px-1 leading-none"
+                            title="Move up"
+                            type="button"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            onClick={() => moveItem(setItems, i, 1)}
+                            disabled={i === items.length - 1}
+                            className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed px-1 leading-none"
+                            title="Move down"
+                            type="button"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                        <button
+                          onClick={() =>
+                            setItems((prev) => prev.filter((_, j) => j !== i))
+                          }
+                          className="text-xs text-zinc-500 hover:text-red-400 px-2"
+                          title="Remove entry"
+                          type="button"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <label className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 cursor-pointer">
+                          {effectiveImage ? "Replace image" : "Upload image"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) =>
+                              handleItemImageUpload(e, i)
+                            }
+                          />
+                        </label>
+                        {it.imageDataUrl && (
+                          <button
+                            onClick={() =>
+                              updateItem(setItems, i, { imageDataUrl: null })
+                            }
+                            className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+                            type="button"
+                          >
+                            {it.imageUrl ? "Reset to auto-detected" : "Clear"}
+                          </button>
+                        )}
+                        {!effectiveImage && (
+                          <span className="text-zinc-500">
+                            No image found — upload one to fix
+                          </span>
+                        )}
+                      </div>
+                      {effectiveImage && (
+                        <FocalPicker
+                          src={effectiveImage}
+                          position={it.imagePosition ?? DEFAULT_POSITION}
+                          onChange={(p) =>
+                            updateItem(setItems, i, { imagePosition: p })
+                          }
+                        />
+                      )}
                     </div>
-                    {it.imageUrl && (
-                      <FocalPicker
-                        src={it.imageUrl}
-                        position={it.imagePosition ?? DEFAULT_POSITION}
-                        onChange={(p) =>
-                          updateItem(setItems, i, { imagePosition: p })
-                        }
-                      />
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
                 {items.length === 0 && (
                   <p className="text-sm text-zinc-500">
                     No items yet. Add some manually.
@@ -745,6 +834,27 @@ function updateItem(
   );
 }
 
+/**
+ * Move an item up or down in the list. `delta` is +1 to move down, -1 to
+ * move up. Ranks are *not* automatically re-numbered — the user controls
+ * the rank field independently because some lists are reverse-order
+ * countdowns (10 -> 1) and we don't want to second-guess that.
+ */
+function moveItem(
+  setItems: React.Dispatch<React.SetStateAction<ListItem[]>>,
+  index: number,
+  delta: number,
+) {
+  setItems((prev) => {
+    const next = index + delta;
+    if (next < 0 || next >= prev.length) return prev;
+    const copy = [...prev];
+    const [removed] = copy.splice(index, 1);
+    copy.splice(next, 0, removed);
+    return copy;
+  });
+}
+
 function FacebookVariant({ index, value }: { index: number; value: string }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
@@ -826,7 +936,11 @@ function buildSlides(
       kind: "item" as const,
       rank: it.rank,
       heading: it.heading,
+      // Pass both: the API route prefers itemImageDataUrl when present and
+      // falls back to fetching itemImageUrl when not. Lets a user-uploaded
+      // image override the auto-detected one without losing the fallback.
       itemImageUrl: it.imageUrl,
+      itemImageDataUrl: it.imageDataUrl ?? null,
       imagePosition: it.imagePosition ?? DEFAULT_POSITION,
     })),
   ];
@@ -850,6 +964,7 @@ function buildSlides(
         rank: it.rank,
         heading: it.heading,
         imageUrl: it.imageUrl,
+        imageDataUrl: it.imageDataUrl ?? null,
       })),
     });
   }

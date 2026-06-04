@@ -25,6 +25,10 @@ export type ListItem = {
   heading: string;
   body: string;
   imageUrl: string | null;
+  // User-uploaded override / supplied image (data URL). Takes precedence over
+  // imageUrl when present — used for entries the auto-extractor missed or for
+  // replacing a wrong/low-quality auto-detected image.
+  imageDataUrl?: string | null;
   imagePosition?: ImagePosition | null;
 };
 
