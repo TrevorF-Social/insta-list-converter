@@ -21,6 +21,7 @@ const ANTHROPIC_KEY_STORAGE = "anthropic-api-key";
 function defaultSummaryStyleFor(domain: string | null | undefined): SummaryStyle {
   if (!domain) return "ranked";
   if (/(^|\.)gamerant\.com$/i.test(domain)) return "hero-overlay";
+  if (/(^|\.)thegamer\.com$/i.test(domain)) return "ranked-overlay";
   return "ranked";
 }
 
@@ -413,18 +414,22 @@ export default function Home() {
                       }
                       className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-xs"
                     >
-                      <option value="ranked">
-                        Ranked list (rank + thumbnail per row)
+                      <option value="ranked-overlay">
+                        Ranked overlay (hero photo + ranked cards) — TheGamer
                       </option>
                       <option value="hero-overlay">
                         Hero photo + white pill cards (GameRant)
+                      </option>
+                      <option value="ranked">
+                        Ranked list (dark bg, simple rows)
                       </option>
                     </select>
                     <p className="text-xs text-zinc-600 mt-1">
                       Defaults based on the source site; override per article.
                     </p>
                   </div>
-                  {summaryStyle === "hero-overlay" && (
+                  {(summaryStyle === "hero-overlay" ||
+                    summaryStyle === "ranked-overlay") && (
                     <div>
                       <label className="block text-xs text-zinc-500 mb-1">
                         Summary background image

@@ -27,11 +27,14 @@ export type SummaryEntry = {
 
 /**
  * Visual layout for the all-in-one summary slide.
- *  - "ranked"        TheGamer-style ranked list with thumbnails per row.
- *  - "hero-overlay"  GameRant-style full-bleed hero photo with white pill
- *                    cards stacked on the right.
+ *  - "ranked"          Simple ranked list, dark bg, thumbnails per row.
+ *  - "hero-overlay"    GameRant-style: full-bleed hero photo + white pill
+ *                      cards on the right, no rank numbers.
+ *  - "ranked-overlay"  Hero photo backdrop + right-anchored cards with
+ *                      `[thumbnail · name · rank]`. Top entry highlighted
+ *                      in accent color. TheGamer's preferred layout.
  */
-export type SummaryStyle = "ranked" | "hero-overlay";
+export type SummaryStyle = "ranked" | "hero-overlay" | "ranked-overlay";
 
 export type RenderConfig = {
   kind: SlideKind;
@@ -359,6 +362,7 @@ function Outro(cfg: RenderConfig) {
  */
 function Summary(cfg: RenderConfig) {
   if (cfg.summaryStyle === "hero-overlay") return SummaryHeroOverlay(cfg);
+  if (cfg.summaryStyle === "ranked-overlay") return SummaryRankedOverlay(cfg);
   return SummaryRanked(cfg);
 }
 
@@ -643,6 +647,269 @@ function HeroOverlayBrand(cfg: RenderConfig) {
       ],
     },
   };
+}
+
+/**
+ * "ranked-overlay" — full-bleed hero photo with a column of right-anchored
+ * cards, each carrying `[thumbnail · name · rank number]`. Top entry is
+ * filled with the brand accent color (white text + white number); the rest
+ * are white cards with dark text and an accent-colored rank number on the
+ * right. Inspired by sports-leaderboard graphics where the leader's row is
+ * highlighted and runners-up trail down in uniform white pills.
+ */
+function SummaryRankedOverlay(cfg: RenderConfig) {
+  const entries = (cfg.summaryEntries ?? []).slice(0, 10);
+  const hasHero = !!cfg.heroImageDataUrl;
+  const pos = cfg.imagePosition ?? { x: 50, y: 50 };
+
+  const backdrop = hasHero
+    ? {
+        type: "img",
+        props: {
+          src: cfg.heroImageDataUrl,
+          width: SLIDE_W,
+          height: SLIDE_H,
+          style: {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: SLIDE_W,
+            height: SLIDE_H,
+            objectFit: "cover",
+            objectPosition: `${pos.x}% ${pos.y}%`,
+          },
+        },
+      }
+    : {
+        type: "div",
+        props: {
+          style: {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: SLIDE_W,
+            height: SLIDE_H,
+            backgroundColor: cfg.bgColor,
+            display: "flex",
+          },
+        },
+      };
+
+  // Vignette behind the title block so the white headline reads cleanly over
+  // any photo. Left-weighted because the title sits in the upper-left.
+  const titleScrim = {
+    type: "div",
+    props: {
+      style: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: SLIDE_W,
+        height: 380,
+        background:
+          "linear-gradient(180deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.50) 60%, rgba(0,0,0,0) 100%)",
+        display: "flex",
+      },
+    },
+  };
+
+  return {
+    type: "div",
+    props: {
+      style: {
+        width: SLIDE_W,
+        height: SLIDE_H,
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: cfg.bgColor,
+        color: "#fff",
+        fontFamily: "Inter",
+        position: "relative",
+      },
+      children: [
+        backdrop,
+        titleScrim,
+        // Title block: small site-name kicker over a big uppercase title.
+        {
+          type: "div",
+          props: {
+            style: {
+              position: "relative",
+              padding: "56px 50px 0",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            },
+            children: [
+              cfg.siteName && {
+                type: "div",
+                props: {
+                  style: {
+                    display: "flex",
+                    fontSize: 26,
+                    fontWeight: 800,
+                    letterSpacing: 4,
+                    color: "#fff",
+                    textTransform: "uppercase",
+                    opacity: 0.92,
+                  },
+                  children: cfg.siteName,
+                },
+              },
+              {
+                type: "div",
+                props: {
+                  style: {
+                    display: "flex",
+                    fontSize: clampFontSize(cfg.title ?? "", 76, 64, 52),
+                    fontWeight: 900,
+                    lineHeight: 1.02,
+                    letterSpacing: -1,
+                    textTransform: "uppercase",
+                    color: "#fff",
+                    maxWidth: 1000,
+                  },
+                  children: truncate(cfg.title ?? "", 60),
+                },
+              },
+            ].filter(Boolean),
+          },
+        },
+        // Cards column — flush right, vertically centered in the space left
+        // below the title. flex 1 lets the column expand to fill, gap keeps
+        // a consistent rhythm between cards.
+        {
+          type: "div",
+          props: {
+            style: {
+              position: "relative",
+              padding: "30px 0 60px 50px",
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              alignItems: "flex-end",
+              justifyContent: "center",
+              gap: 10,
+            },
+            children: entries.map((e, i) =>
+              RankedOverlayCard(e, i === 0, cfg),
+            ),
+          },
+        },
+      ],
+    },
+  } as ReactNode;
+}
+
+const RANKED_OVERLAY_CARD_WIDTH = 600;
+const RANKED_OVERLAY_CARD_HEIGHT = 78;
+const RANKED_OVERLAY_THUMB_SIZE = 56;
+
+function RankedOverlayCard(
+  entry: SummaryEntry,
+  highlighted: boolean,
+  cfg: RenderConfig,
+) {
+  const bg = highlighted ? cfg.accentColor : "#ffffff";
+  const fg = highlighted ? "#ffffff" : "#0b0b0c";
+  const rankColor = highlighted ? "#ffffff" : cfg.accentColor;
+  return {
+    type: "div",
+    props: {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        alignSelf: "flex-end",
+        width: RANKED_OVERLAY_CARD_WIDTH,
+        height: RANKED_OVERLAY_CARD_HEIGHT,
+        backgroundColor: bg,
+        color: fg,
+        paddingLeft: 12,
+        paddingRight: 24,
+        gap: 16,
+        // Rounded on the left, flush to the slide's right edge — matches the
+        // hero-overlay card treatment so a deck mixing styles stays coherent.
+        borderTopLeftRadius: 8,
+        borderBottomLeftRadius: 8,
+        borderTopRightRadius: 0,
+        borderBottomRightRadius: 0,
+      },
+      children: [
+        // Thumbnail — square with mild rounding (more legible at small size
+        // than a circle when the underlying image is a game screenshot).
+        {
+          type: "div",
+          props: {
+            style: {
+              width: RANKED_OVERLAY_THUMB_SIZE,
+              height: RANKED_OVERLAY_THUMB_SIZE,
+              borderRadius: 8,
+              overflow: "hidden",
+              display: "flex",
+              backgroundColor: entry.imageDataUrl ? "#1a1a1d" : cfg.accentColor,
+              flexShrink: 0,
+            },
+            children: entry.imageDataUrl
+              ? [
+                  {
+                    type: "img",
+                    props: {
+                      src: entry.imageDataUrl,
+                      width: RANKED_OVERLAY_THUMB_SIZE,
+                      height: RANKED_OVERLAY_THUMB_SIZE,
+                      style: {
+                        width: RANKED_OVERLAY_THUMB_SIZE,
+                        height: RANKED_OVERLAY_THUMB_SIZE,
+                        objectFit: "cover",
+                      },
+                    },
+                  },
+                ]
+              : [],
+          },
+        },
+        // Name
+        {
+          type: "div",
+          props: {
+            style: {
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              fontSize: rankedOverlayNameSize(entry.heading),
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: 0.3,
+              lineHeight: 1.05,
+              color: fg,
+            },
+            children: truncate(entry.heading, 28),
+          },
+        },
+        // Rank number
+        {
+          type: "div",
+          props: {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              fontSize: 44,
+              fontWeight: 900,
+              color: rankColor,
+              fontVariantNumeric: "tabular-nums",
+            },
+            children: entry.rank != null ? String(entry.rank) : "",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function rankedOverlayNameSize(text: string): number {
+  if (text.length <= 14) return 28;
+  if (text.length <= 20) return 24;
+  return 20;
 }
 
 /**

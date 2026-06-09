@@ -18,7 +18,7 @@ export type SummaryEntry = {
   imageUrl: string | null;
 };
 
-export type SummaryStyle = "ranked" | "hero-overlay";
+export type SummaryStyle = "ranked" | "hero-overlay" | "ranked-overlay";
 
 export type ListItem = {
   rank: number | null;
