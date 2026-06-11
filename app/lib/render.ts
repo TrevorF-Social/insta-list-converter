@@ -132,6 +132,10 @@ function buildTree(cfg: RenderConfig): ReactNode {
 const CHIP_H = 72;
 
 function Cover(cfg: RenderConfig) {
+  // Title-only cover. The article's <meta description> / dek used to live
+  // below the title; users found it noisy and never used it in their final
+  // posts, so it's been removed. cfg.subtitle still exists on the type but
+  // is intentionally ignored here.
   return FullBleedSlide({
     image: cfg.heroImageDataUrl ?? null,
     topRank: null,
@@ -149,20 +153,7 @@ function Cover(cfg: RenderConfig) {
           children: cfg.title ?? "",
         },
       },
-      cfg.subtitle && {
-        type: "div",
-        props: {
-          style: {
-            fontSize: 28,
-            fontWeight: 400,
-            lineHeight: 1.35,
-            opacity: 0.9,
-            maxWidth: 880,
-          },
-          children: truncate(cfg.subtitle, 180),
-        },
-      },
-    ].filter(Boolean) as ReactNode[],
+    ] as ReactNode[],
   });
 }
 
