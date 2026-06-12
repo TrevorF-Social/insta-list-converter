@@ -378,19 +378,6 @@ export default function Home() {
               <label className="mt-4 flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={includeSummary}
-                  onChange={(e) => setIncludeSummary(e.target.checked)}
-                  className="accent-white"
-                />
-                Include full-list summary slide
-              </label>
-              <p className="text-xs text-zinc-500 mt-1 ml-6">
-                A single graphic with every entry. Drops in between the entry
-                slides and the outro.
-              </p>
-              <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
-                <input
-                  type="checkbox"
                   checked={reverseListOrder}
                   onChange={(e) => setReverseListOrder(e.target.checked)}
                   className="accent-white"
@@ -401,8 +388,11 @@ export default function Home() {
                 Use for countdown articles where the article reveals #1 last.
                 Defaults on for TheGamer.
               </p>
+              <p className="mt-3 text-xs text-zinc-500">
+                Generation always outputs two slides: a cover and a summary.
+              </p>
               {includeSummary && (
-                <div className="mt-2 ml-6 space-y-3">
+                <div className="mt-2 space-y-3">
                   <div>
                     <label className="block text-xs text-zinc-500 mb-1">
                       Summary layout
@@ -940,6 +930,12 @@ function buildSlides(
     logoUrl: brand.logoUrl,
     logoDataUrl: brand.logoDataUrl,
   };
+  // Output is exactly two slides for every brand: the cover and the summary.
+  // The per-entry item slides and the outro have been removed — the cover
+  // teases the list and the summary delivers the full ranking on one frame.
+  // (Items are still extracted/edited because the summary entries depend on
+  // them; they just don't render as their own slides anymore. The summary
+  // toggle in the UI is now ignored — both slides ship every time.)
   const slides: unknown[] = [
     {
       ...common,
@@ -950,32 +946,13 @@ function buildSlides(
       heroImageUrl: extracted.heroImageUrl,
       imagePosition: coverPosition,
     },
-    ...orderedItems.map((it) => ({
-      ...common,
-      kind: "item" as const,
-      rank: it.rank,
-      heading: it.heading,
-      // Pass both: the API route prefers itemImageDataUrl when present and
-      // falls back to fetching itemImageUrl when not. Lets a user-uploaded
-      // image override the auto-detected one without losing the fallback.
-      itemImageUrl: it.imageUrl,
-      itemImageDataUrl: it.imageDataUrl ?? null,
-      imagePosition: it.imagePosition ?? DEFAULT_POSITION,
-    })),
-  ];
-  // Summary belongs between the entry slides and the outro: viewers see the
-  // full ranking once after scrolling each pick, then the CTA closes the deck.
-  if (includeSummary) {
-    slides.push({
+    {
       ...common,
       kind: "summary" as const,
       title,
       summaryStyle,
       handle: brand.siteName ? `@${brand.siteName.replace(/\s+/g, "").toUpperCase()}` : null,
       ctaText: "LINK IN BIO ↗",
-      // hero-overlay layout fills the slide with this image (user-selectable
-      // from article hero / any entry image / custom upload). The ranked
-      // layout ignores both fields.
       heroImageUrl: summary.hero.url,
       heroImageDataUrl: summary.hero.dataUrl,
       imagePosition: summary.position,
@@ -985,14 +962,11 @@ function buildSlides(
         imageUrl: it.imageUrl,
         imageDataUrl: it.imageDataUrl ?? null,
       })),
-    });
-  }
-  slides.push({
-    ...common,
-    kind: "outro" as const,
-    ctaText: "Read the full article",
-    sourceUrl: extracted.url,
-  });
+    },
+  ];
+  // The unused parameters below are intentionally kept in the signature so
+  // callers don't have to update — `includeSummary` is no longer consulted.
+  void includeSummary;
   return slides;
 }
 
