@@ -23,7 +23,6 @@ export type SummaryStyle = "ranked" | "hero-overlay" | "ranked-overlay";
 export type ListItem = {
   rank: number | null;
   heading: string;
-  body: string;
   imageUrl: string | null;
   // User-uploaded override / supplied image (data URL). Takes precedence over
   // imageUrl when present — used for entries the auto-extractor missed or for

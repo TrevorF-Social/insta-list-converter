@@ -18,7 +18,6 @@ export type Branding = {
 export type ListItem = {
   rank: number | null;
   heading: string;
-  body: string;
   imageUrl: string | null;
 };
 
@@ -298,7 +297,6 @@ function extractListItems(
         return {
           rank: i + 1,
           heading: split ? split[1] : txt.slice(0, 100),
-          body: split ? split[2] : "",
           imageUrl: null,
         } as ListItem;
       })
@@ -390,7 +388,6 @@ function buildItems(
   return headings.map((h) => ({
     rank: h.rank,
     heading: h.clean,
-    body: bodyAfter($, h.el),
     imageUrl: imageNear($, h.el, base),
   }));
 }
@@ -411,32 +408,6 @@ function isEntryBoundary(tag: string | undefined, entryTag: string): boolean {
   const e = HEAD_LEVEL[entryTag];
   if (t === undefined || e === undefined) return false;
   return t <= e;
-}
-
-function bodyAfter(
-  $: cheerio.CheerioAPI,
-  el: Element,
-): string {
-  const entryTag = (el as any).tagName?.toLowerCase?.() ?? "h2";
-  const parts: string[] = [];
-  let node: Element | null = el;
-  let chars = 0;
-  while (node) {
-    const next: Element | undefined = (node as any).nextSibling;
-    if (!next) break;
-    node = next;
-    const tag = (node as any).tagName?.toLowerCase?.();
-    if (isEntryBoundary(tag, entryTag)) break;
-    if (tag === "p" || tag === "div" || tag === "ul" || tag === "ol" || tag === "blockquote") {
-      const t = $(node).text().trim().replace(/\s+/g, " ");
-      if (t) {
-        parts.push(t);
-        chars += t.length;
-        if (chars > 600) break;
-      }
-    }
-  }
-  return parts.join(" ").slice(0, 600);
 }
 
 function imageNear(

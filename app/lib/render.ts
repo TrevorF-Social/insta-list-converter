@@ -47,7 +47,6 @@ export type RenderConfig = {
   // Item fields
   rank?: number | null;
   heading?: string;
-  body?: string;
   itemImageDataUrl?: string | null;
   // Outro fields
   ctaText?: string;
@@ -56,8 +55,6 @@ export type RenderConfig = {
   summaryEntries?: SummaryEntry[];
   summaryStyle?: SummaryStyle;
   handle?: string | null;     // e.g. "@thegamerweb"
-  domainLabel?: string | null; // e.g. "thegamer.com" — rendered as the right-edge vertical label
-  categoryLabel?: string | null; // e.g. "gaming · news"
   // Crop focus for whichever image this slide uses (hero or itemImage)
   imagePosition?: ImagePosition | null;
   // Branding
@@ -1164,7 +1161,7 @@ function TopBar(
       },
       children: [
         opts.rank != null
-          ? RankChip(cfg, opts.rank, opts.onDark)
+          ? RankChip(cfg, opts.rank)
           : {
               type: "div",
               props: { style: { display: "flex", width: 1, height: CHIP_H } },
@@ -1175,7 +1172,7 @@ function TopBar(
   };
 }
 
-function RankChip(cfg: RenderConfig, rank: number, onDark: boolean) {
+function RankChip(cfg: RenderConfig, rank: number) {
   // Use a circular badge in the accent color — square-ish so it visually
   // matches the logo footprint regardless of whether the logo is wide or square.
   return {
@@ -1250,15 +1247,6 @@ function Logo(cfg: RenderConfig, onDark: boolean) {
       children: cfg.siteName ?? "",
     },
   };
-}
-
-function isDark(hex: string): boolean {
-  const m = hex.replace("#", "");
-  if (m.length !== 6) return true;
-  const r = parseInt(m.slice(0, 2), 16);
-  const g = parseInt(m.slice(2, 4), 16);
-  const b = parseInt(m.slice(4, 6), 16);
-  return r * 0.299 + g * 0.587 + b * 0.114 < 128;
 }
 
 function clampFontSize(text: string, large: number, mid: number, small: number) {

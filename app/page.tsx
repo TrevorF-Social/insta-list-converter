@@ -549,7 +549,6 @@ export default function Home() {
                         {
                           rank: maxRank + 1,
                           heading: "",
-                          body: "",
                           imageUrl: null,
                           imageDataUrl: null,
                         },
